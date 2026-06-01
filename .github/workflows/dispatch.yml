@@ -1,0 +1,20 @@
+name: Slash Command Dispatch
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  dispatch:
+    # PRs only — issue comments are ignored
+    if: github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+    steps:
+      - uses: peter-evans/slash-command-dispatch@v4
+        with:
+          token: ${{ secrets.REPO_TOKEN }}
+          permission: write
+          issue-type: pull-request
+          commands: |
+            test-deploy
+            test-deploy-spot

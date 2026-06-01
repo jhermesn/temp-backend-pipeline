@@ -1,0 +1,126 @@
+name: Deploy — sprites.dev
+
+on:
+  repository_dispatch:
+    types: [test-deploy-command]
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Lifetime in minutes (1–60)"
+        required: false
+        default: "10"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve minutes
+        id: params
+        run: |
+          RAW="${{ github.event.client_payload.slash_command.args.unnamed.arg1 || inputs.minutes || '10' }}"
+          MINUTES=$(( RAW < 1 ? 1 : RAW > 60 ? 60 : RAW ))
+          echo "minutes=$MINUTES" >> "$GITHUB_OUTPUT"
+          PR_NUMBER="${{ github.event.client_payload.pull_request.number }}"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          SPRITE_NAME="backend-${{ github.run_id }}"
+          echo "sprite_name=$SPRITE_NAME" >> "$GITHUB_OUTPUT"
+          IMAGE="ghcr.io/${{ github.repository }}:${{ github.sha }}"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
+
+      - name: Install sprite CLI
+        run: curl -fsSL https://sprites.dev/install.sh | sh
+
+      - name: Authenticate with sprites.dev
+        run: sprite auth login --token "${{ secrets.SPRITES_TOKEN }}"
+
+      - name: Create and configure sprite
+        id: sprite
+        run: |
+          NAME="${{ steps.params.outputs.sprite_name }}"
+          sprite create "$NAME"
+          sprite use "$NAME"
+          sprite url update --auth public
+          URL=$(sprite url)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Bootstrap Docker inside sprite
+        env:
+          IMAGE: ${{ steps.params.outputs.image }}
+        run: |
+          sprite exec -- bash -s < deploy/sprites/entrypoint.sh
+        # entrypoint.sh reads IMAGE from environment, installs Docker, and runs the container
+
+      - name: Wait for backend to be healthy
+        run: |
+          URL="${{ steps.sprite.outputs.url }}"
+          for i in $(seq 1 30); do
+            if curl -sf "$URL/health"; then
+              echo "Backend is healthy"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Backend did not become healthy in time" >&2
+          exit 1
+
+      - name: Post live URL comment
+        if: steps.params.outputs.pr_number != ''
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          token: ${{ secrets.REPO_TOKEN }}
+          issue-number: ${{ steps.params.outputs.pr_number }}
+          body: |
+            **temp-backend-pipeline** (sprites.dev) is live for ${{ steps.params.outputs.minutes }} min
+
+            Base URL: `${{ steps.sprite.outputs.url }}`
+
+            | Method | Path | Action |
+            |--------|------|--------|
+            | GET | `/health` | Health check |
+            | POST | `/contacts` | Create contact |
+            | GET | `/contacts` | List contacts |
+            | GET | `/contacts/:id` | Get contact |
+            | PUT | `/contacts/:id` | Update contact |
+            | DELETE | `/contacts/:id` | Delete contact |
+
+            The sprite will be destroyed automatically after ${{ steps.params.outputs.minutes }} min.
+
+      - name: Wait for lifetime to expire
+        run: sleep $(( ${{ steps.params.outputs.minutes }} * 60 ))
+
+      - name: Destroy sprite
+        if: always()
+        run: sprite destroy -s "${{ steps.params.outputs.sprite_name }}"
+
+      - name: Post teardown comment
+        if: always() && steps.params.outputs.pr_number != ''
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          token: ${{ secrets.REPO_TOKEN }}
+          issue-number: ${{ steps.params.outputs.pr_number }}
+          body: "Sprite `${{ steps.params.outputs.sprite_name }}` destroyed. Session ended."

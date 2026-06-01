@@ -1,0 +1,178 @@
+name: Deploy — AWS EC2 Spot
+
+on:
+  repository_dispatch:
+    types: [test-deploy-spot-command]
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Lifetime in minutes (1–60)"
+        required: false
+        default: "10"
+
+env:
+  AWS_REGION: us-east-2
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve params
+        id: params
+        run: |
+          RAW="${{ github.event.client_payload.slash_command.args.unnamed.arg1 || inputs.minutes || '10' }}"
+          MINUTES=$(( RAW < 1 ? 1 : RAW > 60 ? 60 : RAW ))
+          echo "minutes=$MINUTES" >> "$GITHUB_OUTPUT"
+          PR_NUMBER="${{ github.event.client_payload.pull_request.number }}"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          IMAGE="ghcr.io/${{ github.repository }}:${{ github.sha }}"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image (multi-arch)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve latest Amazon Linux 2023 ARM64 AMI
+        id: ami
+        run: |
+          AMI=$(aws ec2 describe-images \
+            --owners amazon \
+            --filters \
+              "Name=name,Values=al2023-ami-*-arm64" \
+              "Name=state,Values=available" \
+            --query "sort_by(Images, &CreationDate)[-1].ImageId" \
+            --output text)
+          echo "id=$AMI" >> "$GITHUB_OUTPUT"
+
+      - name: Create ephemeral security group
+        id: sg
+        run: |
+          SG_ID=$(aws ec2 create-security-group \
+            --group-name "temp-backend-${{ github.run_id }}" \
+            --description "Temp backend run ${{ github.run_id }}" \
+            --query GroupId --output text)
+          aws ec2 authorize-security-group-ingress \
+            --group-id "$SG_ID" \
+            --protocol tcp --port 80 --cidr 0.0.0.0/0
+          echo "id=$SG_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Render user-data with runtime values
+        run: |
+          sed \
+            -e "s|__MINUTES__|${{ steps.params.outputs.minutes }}|g" \
+            -e "s|__IMAGE__|${{ steps.params.outputs.image }}|g" \
+            deploy/spot/user-data.sh > /tmp/user-data-rendered.sh
+
+      - name: Launch spot instance
+        id: instance
+        run: |
+          INSTANCE_ID=$(aws ec2 run-instances \
+            --instance-type t4g.nano \
+            --image-id "${{ steps.ami.outputs.id }}" \
+            --instance-market-options '{"MarketType":"spot"}' \
+            --security-group-ids "${{ steps.sg.outputs.id }}" \
+            --user-data "file:///tmp/user-data-rendered.sh" \
+            --tag-specifications \
+              "ResourceType=instance,Tags=[{Key=temp-backend,Value=true},{Key=run-id,Value=${{ github.run_id }}}]" \
+            --count 1 \
+            --query "Instances[0].InstanceId" \
+            --output text)
+          echo "id=$INSTANCE_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for instance to be running
+        run: |
+          aws ec2 wait instance-running --instance-ids "${{ steps.instance.outputs.id }}"
+
+      - name: Get public IP
+        id: ip
+        run: |
+          IP=$(aws ec2 describe-instances \
+            --instance-ids "${{ steps.instance.outputs.id }}" \
+            --query "Reservations[0].Instances[0].PublicIpAddress" \
+            --output text)
+          echo "address=$IP" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for backend to be healthy
+        run: |
+          IP="${{ steps.ip.outputs.address }}"
+          for i in $(seq 1 40); do
+            if curl -sf "http://$IP/health"; then
+              echo "Backend is healthy"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Backend did not become healthy in time" >&2
+          exit 1
+
+      - name: Post live URL comment
+        if: steps.params.outputs.pr_number != ''
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          token: ${{ secrets.REPO_TOKEN }}
+          issue-number: ${{ steps.params.outputs.pr_number }}
+          body: |
+            **temp-backend-pipeline** (AWS Spot `t4g.nano`, `${{ env.AWS_REGION }}`) is live for ${{ steps.params.outputs.minutes }} min
+
+            Base URL: `http://${{ steps.ip.outputs.address }}`
+
+            | Method | Path | Action |
+            |--------|------|--------|
+            | GET | `/health` | Health check |
+            | POST | `/contacts` | Create contact |
+            | GET | `/contacts` | List contacts |
+            | GET | `/contacts/:id` | Get contact |
+            | PUT | `/contacts/:id` | Update contact |
+            | DELETE | `/contacts/:id` | Delete contact |
+
+            The instance will be terminated automatically after ${{ steps.params.outputs.minutes }} min.
+            Instance ID: `${{ steps.instance.outputs.id }}`
+
+      - name: Wait for lifetime to expire
+        run: sleep $(( ${{ steps.params.outputs.minutes }} * 60 ))
+
+      - name: Terminate spot instance
+        if: always()
+        run: |
+          aws ec2 terminate-instances --instance-ids "${{ steps.instance.outputs.id }}"
+          aws ec2 wait instance-terminated --instance-ids "${{ steps.instance.outputs.id }}"
+
+      - name: Delete ephemeral security group
+        if: always()
+        run: aws ec2 delete-security-group --group-id "${{ steps.sg.outputs.id }}"
+
+      - name: Post teardown comment
+        if: always() && steps.params.outputs.pr_number != ''
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          token: ${{ secrets.REPO_TOKEN }}
+          issue-number: ${{ steps.params.outputs.pr_number }}
+          body: "EC2 Spot instance `${{ steps.instance.outputs.id }}` terminated. Session ended."
