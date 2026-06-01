@@ -36,17 +36,17 @@ jobs:
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build and push image (multi-arch)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./backend
           push: true
@@ -54,7 +54,7 @@ jobs:
           tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -108,8 +108,7 @@ jobs:
           echo "id=$INSTANCE_ID" >> "$GITHUB_OUTPUT"
 
       - name: Wait for instance to be running
-        run: |
-          aws ec2 wait instance-running --instance-ids "${{ steps.instance.outputs.id }}"
+        run: aws ec2 wait instance-running --instance-ids "${{ steps.instance.outputs.id }}"
 
       - name: Get public IP
         id: ip
@@ -135,7 +134,7 @@ jobs:
 
       - name: Post live URL comment
         if: steps.params.outputs.pr_number != ''
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           token: ${{ secrets.REPO_TOKEN }}
           issue-number: ${{ steps.params.outputs.pr_number }}
@@ -160,18 +159,20 @@ jobs:
         run: sleep $(( ${{ steps.params.outputs.minutes }} * 60 ))
 
       - name: Terminate spot instance
-        if: always()
+        # Guard: only run if the instance was actually launched
+        if: always() && steps.instance.outputs.id != ''
         run: |
           aws ec2 terminate-instances --instance-ids "${{ steps.instance.outputs.id }}"
           aws ec2 wait instance-terminated --instance-ids "${{ steps.instance.outputs.id }}"
 
       - name: Delete ephemeral security group
-        if: always()
+        # Guard: only run if the SG was actually created; instance must be terminated first
+        if: always() && steps.sg.outputs.id != ''
         run: aws ec2 delete-security-group --group-id "${{ steps.sg.outputs.id }}"
 
       - name: Post teardown comment
         if: always() && steps.params.outputs.pr_number != ''
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           token: ${{ secrets.REPO_TOKEN }}
           issue-number: ${{ steps.params.outputs.pr_number }}

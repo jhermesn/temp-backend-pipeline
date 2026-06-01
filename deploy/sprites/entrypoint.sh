@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Runs inside the sprite. Expects IMAGE env var to be set by the caller.
+# Runs inside the sprite. Placeholder replaced by the deploy workflow before execution:
+#   __IMAGE__ → ghcr.io/<owner>/<repo>:<sha>
 set -euo pipefail
 
-: "${IMAGE:?IMAGE env var must be set}"
+IMAGE="__IMAGE__"
 
 curl -fsSL https://get.docker.com | sh
 systemctl start docker
