@@ -81,7 +81,7 @@ jobs:
           sprite create --skip-console "$SPRITE_NAME"
           sprite use "$SPRITE_NAME"
           sprite url update --auth public
-          URL=$(sprite url)
+          URL=$(sprite info 2>/dev/null | grep "^URL:" | awk '{print $2}')
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
       - name: Bootstrap Docker inside sprite
