@@ -67,7 +67,7 @@ jobs:
       - name: Authenticate with sprites.dev
         env:
           SPRITES_TOKEN: ${{ secrets.SPRITES_TOKEN }}
-        run: sprite auth login --token "$SPRITES_TOKEN"
+        run: sprite auth setup --token "$SPRITES_TOKEN"
 
       - name: Create and configure sprite
         id: sprite
