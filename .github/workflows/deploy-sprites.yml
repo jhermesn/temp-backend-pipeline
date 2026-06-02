@@ -19,33 +19,44 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Resolve params
         id: params
+        # All github context values are passed via env — never interpolated directly into the
+        # shell script — to prevent script injection from user-controlled PR comment data.
+        env:
+          INPUT_MINUTES: ${{ github.event.client_payload.slash_command.args.unnamed.arg1 || inputs.minutes || '10' }}
+          INPUT_PR_NUMBER: ${{ github.event.client_payload.pull_request.number }}
+          GH_RUN_ID: ${{ github.run_id }}
+          GH_REPOSITORY: ${{ github.repository }}
+          GH_SHA: ${{ github.sha }}
         run: |
-          RAW="${{ github.event.client_payload.slash_command.args.unnamed.arg1 || inputs.minutes || '10' }}"
+          # printf '%d' safely parses an integer without executing shell metacharacters.
+          RAW="$(printf '%d' "${INPUT_MINUTES}" 2>/dev/null)"
+          RAW="${RAW:-10}"
           MINUTES=$(( RAW < 1 ? 1 : RAW > 60 ? 60 : RAW ))
           echo "minutes=$MINUTES" >> "$GITHUB_OUTPUT"
-          PR_NUMBER="${{ github.event.client_payload.pull_request.number }}"
+
+          PR_NUMBER="$(printf '%d' "${INPUT_PR_NUMBER}" 2>/dev/null)"
+          [[ "$PR_NUMBER" == "0" ]] && PR_NUMBER=""
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
-          SPRITE_NAME="backend-${{ github.run_id }}"
-          echo "sprite_name=$SPRITE_NAME" >> "$GITHUB_OUTPUT"
-          IMAGE="ghcr.io/${{ github.repository }}:${{ github.sha }}"
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+          echo "sprite_name=backend-${GH_RUN_ID}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${GH_REPOSITORY}:${GH_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
       - name: Build and push image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
           context: ./backend
           push: true
@@ -56,30 +67,35 @@ jobs:
         run: curl -fsSL https://sprites.dev/install.sh | sh
 
       - name: Authenticate with sprites.dev
-        run: sprite auth login --token "${{ secrets.SPRITES_TOKEN }}"
+        env:
+          SPRITES_TOKEN: ${{ secrets.SPRITES_TOKEN }}
+        run: sprite auth login --token "$SPRITES_TOKEN"
 
       - name: Create and configure sprite
         id: sprite
+        env:
+          SPRITE_NAME: ${{ steps.params.outputs.sprite_name }}
         run: |
-          NAME="${{ steps.params.outputs.sprite_name }}"
-          sprite create "$NAME"
-          sprite use "$NAME"
+          sprite create "$SPRITE_NAME"
+          sprite use "$SPRITE_NAME"
           sprite url update --auth public
           URL=$(sprite url)
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
       - name: Bootstrap Docker inside sprite
+        env:
+          DEPLOY_IMAGE: ${{ steps.params.outputs.image }}
         run: |
-          # Render the placeholder in entrypoint.sh before piping into the sprite
-          sed "s|__IMAGE__|${{ steps.params.outputs.image }}|g" \
+          sed "s|__IMAGE__|${DEPLOY_IMAGE}|g" \
             deploy/sprites/entrypoint.sh > /tmp/entrypoint-rendered.sh
           sprite exec -- bash -s < /tmp/entrypoint-rendered.sh
 
       - name: Wait for backend to be healthy
+        env:
+          SPRITE_URL: ${{ steps.sprite.outputs.url }}
         run: |
-          URL="${{ steps.sprite.outputs.url }}"
           for _ in $(seq 1 30); do
-            if curl -sf "$URL/health"; then
+            if curl -sf "${SPRITE_URL}/health"; then
               echo "Backend is healthy"
               exit 0
             fi
@@ -90,7 +106,7 @@ jobs:
 
       - name: Post live URL comment
         if: steps.params.outputs.pr_number != ''
-        uses: peter-evans/create-or-update-comment@v5
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
         with:
           token: ${{ secrets.REPO_TOKEN }}
           issue-number: ${{ steps.params.outputs.pr_number }}
@@ -111,17 +127,19 @@ jobs:
             The sprite will be destroyed automatically after ${{ steps.params.outputs.minutes }} min.
 
       - name: Wait for lifetime to expire
-        run: sleep $(( ${{ steps.params.outputs.minutes }} * 60 ))
+        env:
+          DEPLOY_MINUTES: ${{ steps.params.outputs.minutes }}
+        run: sleep $(( DEPLOY_MINUTES * 60 ))
 
       - name: Destroy sprite
-        # Guard: sprite_name is always set (run_id-based), but sprite might not exist if
-        # creation failed — the || true prevents a failed destroy from masking the real error.
         if: always() && steps.params.outputs.sprite_name != ''
-        run: sprite destroy -s "${{ steps.params.outputs.sprite_name }}" || true
+        env:
+          SPRITE_NAME: ${{ steps.params.outputs.sprite_name }}
+        run: sprite destroy -s "$SPRITE_NAME" || true
 
       - name: Post teardown comment
         if: always() && steps.params.outputs.pr_number != ''
-        uses: peter-evans/create-or-update-comment@v5
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
         with:
           token: ${{ secrets.REPO_TOKEN }}
           issue-number: ${{ steps.params.outputs.pr_number }}

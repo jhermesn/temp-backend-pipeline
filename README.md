@@ -1,97 +1,123 @@
 # temp-backend-pipeline
 
-PoC that spins up a temporary Go/Gin contacts CRUD backend for 1–60 minutes, triggered by a slash command on a PR comment. Two providers are available — sprites.dev and AWS EC2 Spot — each in its own workflow file.
+Spin up a real, public HTTP backend for 1–60 minutes directly from a PR comment — no local environment, no staging server, no cost beyond cents.
 
-## Usage
+Useful for testing frontend integrations, mobile clients, Postman collections, or any scenario where you need a live API endpoint on demand.
 
-Comment on any **PR** (not a plain issue):
+## How it works
+
+Comment on a PR:
 
 ```
-/test-deploy 30          # sprites.dev, 30 minutes
-/test-deploy-spot 15     # AWS EC2 Spot (t4g.nano), 15 minutes
+/test-deploy 30
 ```
 
-The workflow replies with the live URL, waits the requested duration, tears everything down, and posts a confirmation comment.
+Within ~2 minutes the workflow replies with a live URL:
 
-## API
+```
+🚀 Backend live at https://backend-12345.sprites.dev — expires in 30 min
 
-| Method | Path | Body |
-|--------|------|------|
-| `GET` | `/health` | — |
-| `POST` | `/contacts` | `{"name":"Alice","email":"alice@example.com","phone":"optional"}` |
-| `GET` | `/contacts` | — |
-| `GET` | `/contacts/:id` | — |
-| `PUT` | `/contacts/:id` | same as POST |
-| `DELETE` | `/contacts/:id` | — |
+POST   /contacts
+GET    /contacts
+GET    /contacts/:id
+PUT    /contacts/:id
+DELETE /contacts/:id
+```
 
-Storage is in-memory. Data is lost when the session ends.
+The backend runs for the requested time, then the workflow tears it down automatically and confirms in the same thread.
 
-## Cost
+## Providers
 
-| Provider | Instance | Cost / 60 min | Notes |
-|----------|----------|--------------|-------|
-| sprites.dev | 1 vCPU / 512 MB | ~$0.09 | No AWS account needed |
-| AWS Spot (`t4g.nano`) | 0.5 vCPU / 512 MB | ~$0.0008 | ~100× cheaper |
+Two isolated implementations — pick the one that fits your setup:
 
-## Required secrets
+| Command | Provider | Avg boot | Cost / 60 min |
+|---------|----------|----------|--------------|
+| `/test-deploy [minutes]` | [sprites.dev](https://sprites.dev) microVM | ~90 s | ~$0.09 |
+| `/test-deploy-spot [minutes]` | AWS EC2 Spot `t4g.nano` | ~2 min | ~$0.001 |
 
-| Secret | Used by | How to obtain |
-|--------|---------|---------------|
-| `REPO_TOKEN` | `dispatch.yml` | GitHub PAT (classic) with `repo` scope |
-| `SPRITES_TOKEN` | `deploy-sprites.yml` | sprites.dev dashboard → API tokens |
-| `AWS_ACCESS_KEY_ID` | `deploy-spot.yml` | IAM user — see permissions below |
-| `AWS_SECRET_ACCESS_KEY` | `deploy-spot.yml` | Same IAM user |
+Both containerize the same Go/Gin image via Docker and expose the same API.
 
-### Minimum IAM permissions for spot deployment
+## API reference
 
+The backend is a contacts CRUD with in-memory storage. Data resets when the session ends.
+
+```
+GET    /health               → 200 OK
+POST   /contacts             → 201 Created
+GET    /contacts             → 200 [ ]
+GET    /contacts/:id         → 200 | 404
+PUT    /contacts/:id         → 200 | 404
+DELETE /contacts/:id         → 204 | 404
+```
+
+**Contact shape:**
+```json
+{ "name": "Alice", "email": "alice@example.com", "phone": "optional" }
+```
+
+## Setup
+
+### 1. Secrets
+
+| Secret | Required for | Where to get it |
+|--------|-------------|-----------------|
+| `REPO_TOKEN` | Both providers | GitHub → Settings → Developer settings → PAT (classic), `repo` scope |
+| `SPRITES_TOKEN` | sprites.dev | [sprites.dev](https://sprites.dev) dashboard → API tokens |
+| `AWS_ROLE_ARN` | AWS Spot | IAM role ARN — see below |
+
+### 2. AWS OIDC (spot provider only)
+
+The spot workflow uses GitHub OIDC — no long-term keys.
+
+**Add GitHub as an identity provider in IAM** (once per AWS account):
+- Provider URL: `https://token.actions.githubusercontent.com`
+- Audience: `sts.amazonaws.com`
+
+**Create an IAM role** with this trust policy:
 ```json
 {
   "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "ec2:RunInstances",
-        "ec2:DescribeInstances",
-        "ec2:TerminateInstances",
-        "ec2:CreateSecurityGroup",
-        "ec2:DescribeSecurityGroups",
-        "ec2:AuthorizeSecurityGroupIngress",
-        "ec2:DeleteSecurityGroup",
-        "ec2:DescribeImages"
-      ],
-      "Resource": "*"
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "Federated": "arn:aws:iam::<account-id>:oidc-provider/token.actions.githubusercontent.com"
+    },
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": { "token.actions.githubusercontent.com:aud": "sts.amazonaws.com" },
+      "StringLike":  { "token.actions.githubusercontent.com:sub": "repo:jhermesn/temp-backend-pipeline:*" }
     }
-  ]
+  }]
 }
 ```
+
+**Attach this permission policy** to the role:
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": [
+      "ec2:RunInstances", "ec2:DescribeInstances", "ec2:TerminateInstances",
+      "ec2:CreateSecurityGroup", "ec2:DescribeSecurityGroups",
+      "ec2:AuthorizeSecurityGroupIngress", "ec2:DeleteSecurityGroup",
+      "ec2:DescribeImages"
+    ],
+    "Resource": "*"
+  }]
+}
+```
+
+Set the role ARN as the `AWS_ROLE_ARN` repo secret.
 
 ## Local development
 
 ```bash
 cd backend
-go test ./... -v          # run all tests
-go run .                  # start server on :8080
+go test ./... -v        # run tests
+go run .                # server on :8080
 
-# or with Docker
 docker build -t temp-backend .
 docker run -p 8080:8080 temp-backend
 curl localhost:8080/health
-```
-
-## Repository structure
-
-```
-.github/workflows/
-  dispatch.yml          # PR slash-command listener
-  deploy-sprites.yml    # sprites.dev provider
-  deploy-spot.yml       # AWS EC2 Spot provider
-backend/
-  contacts_test.go      # tests (written first — TDD)
-  main.go               # Go + Gin in-memory contacts CRUD
-  go.mod / go.sum
-  Dockerfile
-deploy/
-  sprites/entrypoint.sh # runs inside the sprite
-  spot/user-data.sh     # EC2 bootstrap script
 ```
