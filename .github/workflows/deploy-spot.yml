@@ -25,6 +25,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.client_payload.pull_request.head.sha || github.sha }}
 
       - name: Resolve params
         id: params
@@ -32,7 +34,7 @@ jobs:
           INPUT_MINUTES: ${{ github.event.client_payload.slash_command.args.unnamed.arg2 || inputs.minutes || '10' }}
           INPUT_PR_NUMBER: ${{ github.event.client_payload.pull_request.number }}
           GH_REPOSITORY: ${{ github.repository }}
-          GH_SHA: ${{ github.sha }}
+          GH_SHA: ${{ github.event.client_payload.pull_request.head.sha || github.sha }}
         run: |
           RAW="$(printf '%d' "${INPUT_MINUTES}" 2>/dev/null)"
           RAW="${RAW:-10}"
@@ -61,7 +63,7 @@ jobs:
           context: ./backend
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          tags: ghcr.io/${{ github.repository }}:${{ github.event.client_payload.pull_request.head.sha || github.sha }}
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b # v6

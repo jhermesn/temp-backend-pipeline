@@ -21,6 +21,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # Check out the PR branch so the deployed image contains the PR's changes,
+          # not main. Falls back to github.sha for workflow_dispatch runs.
+          ref: ${{ github.event.client_payload.pull_request.head.sha || github.sha }}
 
       - name: Resolve params
         id: params
@@ -29,7 +33,7 @@ jobs:
           INPUT_PR_NUMBER: ${{ github.event.client_payload.pull_request.number }}
           GH_RUN_ID: ${{ github.run_id }}
           GH_REPOSITORY: ${{ github.repository }}
-          GH_SHA: ${{ github.sha }}
+          GH_SHA: ${{ github.event.client_payload.pull_request.head.sha || github.sha }}
         run: |
           RAW="$(printf '%d' "${INPUT_MINUTES}" 2>/dev/null)"
           RAW="${RAW:-10}"
@@ -59,7 +63,7 @@ jobs:
           context: ./backend
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          tags: ghcr.io/${{ github.repository }}:${{ github.event.client_payload.pull_request.head.sha || github.sha }}
 
       - name: Install sprite CLI
         run: curl -fsSL https://sprites.dev/install.sh | sh
