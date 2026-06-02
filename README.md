@@ -63,7 +63,7 @@ DELETE /contacts/:id         → 204 | 404
 
 ## Setup
 
-### 1. Secrets
+### Secrets
 
 | Secret | Required for | Where to get it |
 |--------|--------------|-----------------|
