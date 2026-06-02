@@ -1,15 +1,16 @@
 # temp-backend-pipeline
 
-Spin up a real, public HTTP backend for 1–60 minutes directly from a PR comment — no local environment, no staging server, no cost beyond cents.
+Spin up a real, public HTTP backend for 1–60 minutes directly from a PR comment without need for a local environment, staging server, or paying extra costs.
 
 Useful for testing frontend integrations, mobile clients, Postman collections, or any scenario where you need a live API endpoint on demand.
 
 ## How it works
 
-Comment on a PR:
+Comment on a PR with the provider and duration:
 
 ```
-/test-deploy 30
+/test-deploy sprites 30
+/test-deploy aws 15
 ```
 
 Within ~2 minutes the workflow replies with a live URL:
@@ -30,10 +31,10 @@ The backend runs for the requested time, then the workflow tears it down automat
 
 Two isolated implementations — pick the one that fits your setup:
 
-| Command | Provider | Avg boot | Cost / 60 min |
-|---------|----------|----------|--------------|
-| `/test-deploy [minutes]` | [sprites.dev](https://sprites.dev) microVM | ~90 s | ~$0.09 |
-| `/test-deploy-spot [minutes]` | AWS EC2 Spot `t4g.nano` | ~2 min | ~$0.001 |
+| Provider arg | Provider | Avg boot | Cost / 60 min |
+|--------------|----------|----------|--------------|
+| `sprites` | [sprites.dev](https://sprites.dev) microVM | ~90 s | ~$0.09 |
+| `aws` | AWS EC2 Spot `t4g.nano` | ~2 min | ~$0.001 |
 
 Both containerize the same Go/Gin image via Docker and expose the same API.
 

@@ -2,7 +2,7 @@ name: Deploy — AWS EC2 Spot
 
 on:
   repository_dispatch:
-    types: [test-deploy-spot-command]
+    types: [test-deploy-command]
   workflow_dispatch:
     inputs:
       minutes:
@@ -15,6 +15,7 @@ env:
 
 jobs:
   deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.client_payload.slash_command.args.unnamed.arg1 == 'aws'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -27,15 +28,12 @@ jobs:
 
       - name: Resolve params
         id: params
-        # All github context values are passed via env — never interpolated directly into the
-        # shell script — to prevent script injection from user-controlled PR comment data.
         env:
-          INPUT_MINUTES: ${{ github.event.client_payload.slash_command.args.unnamed.arg1 || inputs.minutes || '10' }}
+          INPUT_MINUTES: ${{ github.event.client_payload.slash_command.args.unnamed.arg2 || inputs.minutes || '10' }}
           INPUT_PR_NUMBER: ${{ github.event.client_payload.pull_request.number }}
           GH_REPOSITORY: ${{ github.repository }}
           GH_SHA: ${{ github.sha }}
         run: |
-          # printf '%d' safely parses an integer without executing shell metacharacters.
           RAW="$(printf '%d' "${INPUT_MINUTES}" 2>/dev/null)"
           RAW="${RAW:-10}"
           MINUTES=$(( RAW < 1 ? 1 : RAW > 60 ? 60 : RAW ))

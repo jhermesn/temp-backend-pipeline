@@ -6,7 +6,6 @@ on:
 
 jobs:
   dispatch:
-    # PRs only — issue comments are ignored
     if: github.event.issue.pull_request != null
     runs-on: ubuntu-latest
     steps:
@@ -15,6 +14,4 @@ jobs:
           token: ${{ secrets.REPO_TOKEN }}
           permission: write
           issue-type: pull-request
-          commands: |
-            test-deploy
-            test-deploy-spot
+          commands: test-deploy
