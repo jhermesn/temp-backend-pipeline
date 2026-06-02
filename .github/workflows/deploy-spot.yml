@@ -116,6 +116,7 @@ jobs:
             --instance-type t4g.nano \
             --image-id "$AMI_ID" \
             --instance-market-options '{"MarketType":"spot"}' \
+            --instance-initiated-shutdown-behavior terminate \
             --security-group-ids "$SG_ID" \
             --user-data "file:///tmp/user-data-rendered.sh" \
             --tag-specifications \

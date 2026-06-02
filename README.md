@@ -67,6 +67,6 @@ DELETE /contacts/:id         → 204 | 404
 
 | Secret | Required for | Where to get it |
 |--------|--------------|-----------------|
-| `REPO_TOKEN` | Both providers | GitHub fine-grained token (Contents R&W) |
+| `REPO_TOKEN` | Both providers | GitHub fine-grained token — `Contents: R&W`, `Pull requests: R&W` |
 | `SPRITES_TOKEN` | sprites.dev | sprites.dev dashboard → API tokens |
 | `AWS_ROLE_ARN` | AWS Spot | IAM role ARN |
