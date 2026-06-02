@@ -74,7 +74,7 @@ jobs:
         env:
           SPRITE_NAME: ${{ steps.params.outputs.sprite_name }}
         run: |
-          sprite create "$SPRITE_NAME"
+          sprite create --skip-console "$SPRITE_NAME"
           sprite use "$SPRITE_NAME"
           sprite url update --auth public
           URL=$(sprite url)
@@ -133,7 +133,7 @@ jobs:
         if: always() && steps.params.outputs.sprite_name != ''
         env:
           SPRITE_NAME: ${{ steps.params.outputs.sprite_name }}
-        run: sprite destroy -s "$SPRITE_NAME" || true
+        run: sprite destroy "$SPRITE_NAME" --force || true
 
       - name: Post teardown comment
         if: always() && steps.params.outputs.pr_number != ''
