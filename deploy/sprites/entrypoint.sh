@@ -6,9 +6,9 @@ set -euo pipefail
 IMAGE="__IMAGE__"
 
 curl -fsSL https://get.docker.com | sh
-systemctl start docker
+dockerd &>/tmp/dockerd.log &
 
-# Wait for Docker daemon
+# Wait for Docker daemon socket to be ready
 timeout 30 bash -c 'until docker info >/dev/null 2>&1; do sleep 2; done'
 
 docker pull "$IMAGE"
