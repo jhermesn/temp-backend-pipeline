@@ -14,7 +14,6 @@ Comment on a PR with the provider and duration:
 ```
 
 Within ~2 minutes the workflow replies with a live URL:
-
 ```
 🚀 Sprites: Backend live at https://backend-12345.sprites.dev — expires in 30 min
 🚀 AWS: Backend live at http://[IP_ADDRESS] — expires in 30 min
