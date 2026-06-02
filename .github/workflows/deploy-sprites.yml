@@ -110,7 +110,7 @@ jobs:
         if: steps.params.outputs.pr_number != ''
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
         with:
-          token: ${{ secrets.REPO_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           issue-number: ${{ steps.params.outputs.pr_number }}
           body: |
             **temp-backend-pipeline** (sprites.dev) is live for ${{ steps.params.outputs.minutes }} min
@@ -143,6 +143,6 @@ jobs:
         if: always() && steps.params.outputs.pr_number != ''
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
         with:
-          token: ${{ secrets.REPO_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           issue-number: ${{ steps.params.outputs.pr_number }}
           body: "Sprite `${{ steps.params.outputs.sprite_name }}` destroyed. Session ended."
