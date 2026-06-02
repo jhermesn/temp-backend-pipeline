@@ -6,10 +6,12 @@ set -euo pipefail
 IMAGE="__IMAGE__"
 
 curl -fsSL https://get.docker.com | sh
-dockerd &>/tmp/dockerd.log &
+
+# Sprites are Firecracker microVMs without systemd — start dockerd with sudo
+sudo dockerd &>/tmp/dockerd.log &
 
 # Wait for Docker daemon socket to be ready
-timeout 30 bash -c 'until docker info >/dev/null 2>&1; do sleep 2; done'
+timeout 60 bash -c 'until docker info >/dev/null 2>&1; do sleep 2; done'
 
-docker pull "$IMAGE"
-docker run -d -p 80:8080 "$IMAGE"
+sudo docker pull "$IMAGE"
+sudo docker run -d -p 80:8080 "$IMAGE"
