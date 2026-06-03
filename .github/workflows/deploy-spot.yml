@@ -178,32 +178,5 @@ jobs:
             | PUT | `/contacts/:id` | Update contact |
             | DELETE | `/contacts/:id` | Delete contact |
 
-            The instance will be terminated automatically after ${{ steps.params.outputs.minutes }} min.
+            The instance terminates automatically after ${{ steps.params.outputs.minutes }} min.
             Instance ID: `${{ steps.instance.outputs.id }}`
-
-      - name: Wait for lifetime to expire
-        env:
-          DEPLOY_MINUTES: ${{ steps.params.outputs.minutes }}
-        run: sleep $(( DEPLOY_MINUTES * 60 ))
-
-      - name: Terminate spot instance
-        if: always() && steps.instance.outputs.id != ''
-        env:
-          INSTANCE_ID: ${{ steps.instance.outputs.id }}
-        run: |
-          aws ec2 terminate-instances --instance-ids "$INSTANCE_ID"
-          aws ec2 wait instance-terminated --instance-ids "$INSTANCE_ID"
-
-      - name: Delete ephemeral security group
-        if: always() && steps.sg.outputs.id != ''
-        env:
-          SG_ID: ${{ steps.sg.outputs.id }}
-        run: aws ec2 delete-security-group --group-id "$SG_ID"
-
-      - name: Post teardown comment
-        if: always() && steps.params.outputs.pr_number != ''
-        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          issue-number: ${{ steps.params.outputs.pr_number }}
-          body: "EC2 Spot instance `${{ steps.instance.outputs.id }}` terminated. Session ended."
