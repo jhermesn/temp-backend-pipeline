@@ -1,23 +1,21 @@
 # temp-backend-pipeline
 
-Spin up a real, public HTTP backend for 1–60 minutes directly from a PR comment without need for a local environment, staging server, or paying extra costs.
+Spin up a real, public HTTP backend for 1–60 minutes directly from a PR comment — no local environment, no staging server needed.
 
 Useful for testing frontend integrations, mobile clients, Postman collections, or any scenario where you need a live API endpoint on demand.
 
 ## How it works
 
-Comment on a PR with the provider and duration:
+Comment on a PR with the duration:
 
 ```
 /test-deploy sprites 30
-/test-deploy aws 15
 ```
 
-Within ~2 minutes the workflow replies with a live URL:
+Within ~3-4 min the workflow replies with a live URL:
 
 ```
-🚀 Sprites: Backend live at https://backend-12345.sprites.dev — expires in 30 min
-🚀 AWS: Backend live at http://[IP_ADDRESS] — expires in 30 min
+🚀 Backend live at https://backend-12345.sprites.app — expires in 30 min
 
 POST   /contacts
 GET    /contacts
@@ -26,22 +24,15 @@ PUT    /contacts/:id
 DELETE /contacts/:id
 ```
 
-The backend runs for the requested time, then the workflow tears it down automatically and confirms in the same thread.
+The backend powers off automatically after the requested time. No runner kept alive waiting.
 
-## Providers
+## Provider
 
-Two isolated implementations, pick the one that fits your setup:
-
-| Provider arg | Provider | Avg boot | Cost / 60 min |
-|--------------|----------|----------|---------------|
-| `sprites` | sprites.dev microVM | ~3-4 min | ~$0.09 |
-| `aws` | AWS EC2 Spot `t4g.nano` | ~2-3 min | ~$0.002 |
-
-Both containerize the same Go/Gin image via Docker and expose the same API.
+[sprites.dev](https://sprites.dev) — Firecracker microVM with a public HTTPS URL. Boot ~3-4 min, cost ~$0.09/hr.
 
 ## API reference
 
-The backend is a contacts CRUD with in-memory storage. Data resets when the session ends.
+In-memory contacts CRUD. Data resets when the session ends.
 
 ```
 GET    /health               → 200 OK
@@ -54,19 +45,14 @@ DELETE /contacts/:id         → 204 | 404
 
 **Contact shape:**
 ```json
-{
-  "name": "Alice",
-  "email": "alice@example.com",
-  "phone": "optional"
-}
+{ "name": "Alice", "email": "alice@example.com", "phone": "optional" }
 ```
 
 ## Setup
 
 ### Secrets
 
-| Secret | Required for | Where to get it |
-|--------|--------------|-----------------|
-| `REPO_TOKEN` | Both providers | GitHub fine-grained token — `Contents: R&W`, `Pull requests: R&W` |
-| `SPRITES_TOKEN` | sprites.dev | sprites.dev dashboard → API tokens |
-| `AWS_ROLE_ARN` | AWS Spot | IAM role ARN |
+| Secret | Where to get it |
+|--------|-----------------|
+| `REPO_TOKEN` | GitHub fine-grained token — `Contents: R&W`, `Pull requests: R&W`, `Issues: R&W` |
+| `SPRITES_TOKEN` | [sprites.dev](https://sprites.dev) dashboard → API tokens — format: `org-slug/org-id/token-id/token-value` |
