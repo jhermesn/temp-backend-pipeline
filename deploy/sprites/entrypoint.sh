@@ -14,4 +14,4 @@ sudo dockerd &>/tmp/dockerd.log &
 timeout 60 bash -c 'until docker info >/dev/null 2>&1; do sleep 2; done'
 
 sudo docker pull "$IMAGE"
-sudo docker run -d -p 80:8080 "$IMAGE"
+sudo docker run -d -p 8080:8080 "$IMAGE"
