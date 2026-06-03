@@ -87,8 +87,11 @@ jobs:
       - name: Bootstrap Docker inside sprite
         env:
           DEPLOY_IMAGE: ${{ steps.params.outputs.image }}
+          DEPLOY_MINUTES: ${{ steps.params.outputs.minutes }}
         run: |
-          sed "s|__IMAGE__|${DEPLOY_IMAGE}|g" \
+          sed \
+            -e "s|__IMAGE__|${DEPLOY_IMAGE}|g" \
+            -e "s|__MINUTES__|${DEPLOY_MINUTES}|g" \
             deploy/sprites/entrypoint.sh > /tmp/entrypoint-rendered.sh
           sprite exec -- bash -s < /tmp/entrypoint-rendered.sh
 
@@ -126,23 +129,4 @@ jobs:
             | PUT | `/contacts/:id` | Update contact |
             | DELETE | `/contacts/:id` | Delete contact |
 
-            The sprite will be destroyed automatically after ${{ steps.params.outputs.minutes }} min.
-
-      - name: Wait for lifetime to expire
-        env:
-          DEPLOY_MINUTES: ${{ steps.params.outputs.minutes }}
-        run: sleep $(( DEPLOY_MINUTES * 60 ))
-
-      - name: Destroy sprite
-        if: always() && steps.params.outputs.sprite_name != ''
-        env:
-          SPRITE_NAME: ${{ steps.params.outputs.sprite_name }}
-        run: sprite destroy "$SPRITE_NAME" --force || true
-
-      - name: Post teardown comment
-        if: always() && steps.params.outputs.pr_number != ''
-        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          issue-number: ${{ steps.params.outputs.pr_number }}
-          body: "Sprite `${{ steps.params.outputs.sprite_name }}` destroyed. Session ended."
+            The sprite powers off automatically after ${{ steps.params.outputs.minutes }} min.
